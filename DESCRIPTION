@@ -14,7 +14,7 @@ BugReports: https://github.com/pitakakariki/robo/issues
 License: GPL (>=2)
 Depends: R (>= 4.1.0)
 Imports: dplyr, lubridate, methods, readr, rlang, tidyr, utils
-Suggests: ggplot2, litedown, rbibutils, tinytest
+Suggests: covr, ggplot2, litedown, rbibutils, tinytest
 LazyData: true
 LazyDataCompression: xz
 Encoding: UTF-8
