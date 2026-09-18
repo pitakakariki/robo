@@ -1,0 +1,396 @@
+---
+vignette: >
+  %\VignetteIndexEntry{The robo package for processing HOBO accelerometer data in R}
+  %\VignetteEncoding{UTF-8}
+  %\VignetteEngine{litedown::vignette}
+title: The robo package for processing HOBO accelerometer data in R
+output:
+  html:
+    options:
+      toc: true
+bibliography: ["references.bib"]
+---
+
+```{css, echo=FALSE}
+#refs::before {content: none;}
+```
+
+```{r setup, include=FALSE}
+litedown::reactor(
+  echo = TRUE,
+  warning = TRUE,
+  message = TRUE,
+  out.width = "100%",
+  fig.align = "center",
+  fig.width = 10,
+  fig.height = 9,
+  comment = "## "
+)
+```
+
+# Introduction
+
+HOBO devices are accelerometer based devices which were originally created for tracking shipping containers across long journeys. Due to their design they are robust to environmental conditions as well as long lasting. The adoption of HOBO devices for animal research allows for tracking of lying and standing time over extended periods (30+ days) with minimal interaction with the animals.
+
+# The `robo` package
+
+The aims of this package are to simplify and standardise the processes of:
+
+  * predicting lying and standing behaviour from HOBO accelerometer data
+  * converting behaviour data into bouts
+  * summarising behaviour data over time
+
+# Tutorial
+
+This tutorial will take us through two example datasets. We will diagnose any problems with the accelerometers and tidy up the data; we will apply a classifier to determine behaviour; and we will process the data into a form suitable for analysis.
+
+To start the tutorial, load the `robo` package as well as the [`dplyr`](https://cran.r-project.org/package=dplyr) package which we will use for data manipulation, the [`lubridate`](https://cran.r-project.org/package=lubridate) package for handling times and dates\, and the [`ggplot2`](https://cran.r-project.org/package=ggplot2) package for visualisation.
+
+```{r, message=FALSE}
+library(robo)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+theme_set(theme_bw())
+```
+
+# Example One - Cows
+
+Example data has been included in the package to provide examples for this tutorial. Our first example is data collected from cows. Typically on large animals, the HOBO device will be attached with the y-axis aligned along the leg. The z-axis will usually point outwards. Note that this dataset has no x-axis data. Although x-axis data is not needed with this alignment, we recommend exporting it anyway in case you need it for diagnostics.
+
+The example dataset `cows` is an example of cleaned-up data ready for analysis with `robo`:
+
+```{r}
+#| print: !expr function(x, ...) xfun::record_print(head(x, 6), ...)
+cows
+```
+
+In practice your data will need some processing to make it ready for analysis. In this section we will show the process starting with "raw" CSV (comma-separated value) files through to the analysis-ready `cows` dataset. If you want to follow this tutorial with your own data, you will need to export CSVs from HOBOware.
+
+## Reading HOBO Data
+
+In a typical study you will have data from multiple devices on multiple animals. If the data from each device is exported to a separate CSV in a single directory, you can import these CSVs into R using `read_hobo_dir`. If you only want to import data from a single device, you can use the `read_hobo` function.
+
+Use the `hobo_example` function to find out where R has installed the example CSVs:
+
+```{r}
+cows_path <- hobo_example("cows")
+list.files(cows_path)
+```
+
+Here are the first few lines of cow01.csv. `robo` expects your exported data to be in this format (although you may also have a column for x-axis acceleration).
+
+```{r}
+#| echo: false
+#| results: "hide"
+# just here to remember how to get the cow01.csv printout below
+cows_snippet <- cows_path |>
+  list.files(full.names=TRUE) |>
+  getElement(1) |>
+  readLines(n=6) |>
+  paste(collapse="\n")
+cat(cows_snippet)
+```
+
+```{md}
+#| results: "hide"
+#| attr.source: 'style="white-space: pre; overflow-x: auto"'
+"Plot Title: cow01"
+"#","Date Time, GMT-04:00","Y Accel, g (LGR S/N: 00000000, SEN S/N: 00000000)","Z Accel, g (LGR S/N: 00000000, SEN S/N: 00000000)"
+1,04/01/2026 09:00:00 PM,1.000,0.125
+2,04/01/2026 09:01:00 PM,1.025,0.025
+3,04/01/2026 09:02:00 PM,1.075,0.100
+4,04/01/2026 09:03:00 PM,1.025,0.150 
+```
+
+Use `read_hobo` to read a single CSV file. The "Plot Title" line from your CSV will be used as the animal ID. While `read_hobo` can parse `GMT-04:00`, it will usually be more reliable (and informative) to provide the time zone directly.
+
+```{r}
+#| print: !expr function(x, ...) xfun::record_print(head(x, 6), ...)
+cow01 <- read_hobo(file.path(cows_path, "cow01.csv"), tz="America/New_York")
+cow01
+```
+
+You will normally be monitoring multiple animals. Each will have their own HOBO device, and so each will probably have their own downloaded CSV. Use `read_hobo_dir` to read all of the HOBO CSVs in a directory.
+
+```{r}
+cows_raw <- read_hobo_dir(cows_path, tz="America/New_York")
+table(cows_raw$Animal)
+```
+
+## Diagnostics
+
+Now we need to look at the data that was imported to ensure it is ready for `robo` to classify. The areas we will check are:
+
+  * Time zones and daylight savings.
+  * Deployment time.
+  * Orientation, which axis to use, and were they attached the right way around.
+  * Sampling frequency.
+
+### Accelerometer Traces
+
+Our first diagnostic plot is an accelerometer trace. This can show us whether any of the devices have malfunctioned. If we know when the devices were turned on and off we can check that our time zone conversion was correct. You can open the plot in a new tab for a better view.
+
+```{r, fig.width=16, fig.asp=0.6}
+ggplot(cows_raw, aes(Time, Y, group=Animal)) +
+  geom_line() +
+  scale_x_datetime(date_breaks="1 day", date_labels="%b %d") +
+  labs(x="", y="y-axis acceleration (g)") +
+  facet_wrap(~Animal, ncol=1, strip.position="left")
+```
+
+We can see from these traces that:
+
+  * The data hasn't been trimmed back to the deployment period.
+  * There was something wrong with the device on cow08.
+
+We are going to remove the data for cow08, and we will restrict the rest of the data to the interval April 2 to April 14. Note that we are being careful to specify the time zone since `ymd_hms` will default to UTC.
+
+```{r}
+cows_clean <- cows_raw |>
+  filter_out(Animal == "cow08") |>
+  filter(Time >= ymd_hms("2026-04-02 00:00:00", tz="America/New_York")) |>
+  filter(Time <= ymd_hms("2026-04-14 23:59:00", tz="America/New_York"))
+```
+
+## y-axis Histograms
+
+Because these devices were attached horizontally to the cows, we will use the y-axis to determine standing versus lying. Our second diagnostic plot is a set of y-axis accelerometer histograms. We can use these histograms to check that our thresholds are reasonable. In this case we have used the cut-off described in @ledgerwood2010 of -0.65g. We have set `scales="free_y"` in `facet_wrap` to give each individual histogram its own scale.
+
+```{r, fig.height=6}
+ggplot(cows_clean, aes(Y)) +
+  geom_histogram(binwidth=0.2, colour="black", fill="white") +
+  geom_vline(xintercept=-0.65, linetype="dashed") +
+  facet_wrap(~Animal, nrow=2, scales="free_y") +
+  labs(x="y-axis acceleration (g)", y="count")
+```
+
+What are we looking for? Standing is to the left (negative values for the y-axis acceleration, i.e. the device is pointing down) and lying is in the middle (small values for the y-acceleration, i.e. the device is lying flat). As a mnemonic, we expect the standing histogram to be tall and narrow (the histogram is "standing up") and the lying histogram to be more spread out (histogram is "lying down").
+
+Look closely at the histogram for cow01 - it appears that the device has been attached upside-down, since our cutoff threshold is outside of the histogram range and the "tall" mode is on the right instead of the left. We need to invert the y-axis for this animal. (Technically we want to rotate 180&deg; about the z-axis, which means inverting both the x-axis and the y-axis. However x-axis accelerations were not recorded in this experiment.)
+
+```{r}
+cows_clean <- mutate(cows_clean, Y=if_else(Animal == "cow01", -Y, Y))
+```
+
+Our cleaned data should now match the version of the data supplied with the package:
+
+```{r}
+all.equal(cows, cows_clean, check.attributes=FALSE)
+```
+
+## Classifier
+
+Now that we are confident in the quality of our data and our intended threshold, we can use that threshold to classify behaviour. We use the `classify_sl` (classify standing and lying) function to assign behaviours based on accelerometer readings. We need to specify the axis to use (`"Y"`), and the threshold to use (`-0.65`).
+
+```{r}
+#| print: !expr function(x, ...) xfun::record_print(head(x, 6), ...)
+cows_bvr <- cows |>
+  group_by(Animal) |>
+  classify_sl(axis="Y", threshold=-0.65)
+
+cows_bvr
+```
+
+## sMOOthing
+
+The HOBO data now has a `Behaviour` column coding observations as either lying or standing. We can perform an additional smoothing step to improve the accuracy of the classification. The `smooth_behaviour` function goes through the data and gets rid of any short bouts which are often anomalous readings rather than real changes in behaviour [@zobel2015]. The bout length for smoothing is controlled by the `min_run` argument. In the example below, a setting of `2` will smooth out any single bouts, meaning that two consecutive readings are required to agree before we trust a change in classified behaviour. In the example below, the third row is a lying bout in the middle of a long standing bout and is more likely to be noise in the HOBO measurement than a genuine change. The seventh and eighth rows are two consecutive observations coded as lying. These are kept since they are more likely to be a real lying bout.
+
+```{r}
+#| print.args: !expr list(tbl_df=list(limit=c(11,Inf)))
+cows_bvr |>
+  ungroup() |>
+  slice(12436:12446)
+
+smooth_behaviour(cows_bvr, name_in="Behaviour", name_out="Smoothed", min_run=2) |>
+  ungroup() |>
+  slice(12436:12446)
+```
+
+
+# Example Two - Goats
+
+At this point we have finished with the cow data example. In our second example we will look at some goat data.
+
+You can load up the raw goat HOBO data using:
+
+```{r}
+#| print: !expr function(x, ...) xfun::record_print(head(x, 6), ...)
+goats_path <- hobo_example("goats")
+goats_raw <- read_hobo_dir(goats_path)
+goats_raw
+```
+
+Note that all three axes were recorded on these devices.
+
+## Accelerometer Trace
+
+First we will look at the data graphically to find any anomalies, in a similar manner to the cow data example. HOBOs are mounted horizontally on goats, so we will be using the x-axis to determine standing and lying.
+
+```{r, fig.width=16, fig.asp=0.6}
+ggplot(goats_raw, aes(Time, X, group=Animal)) +
+  geom_line() +
+  scale_x_datetime(date_breaks="1 day") +
+  labs(x="", y="x-axis") +
+  facet_wrap(~Animal, ncol=1, strip.position="left")
+```
+
+We can see three important things from these traces:
+
+  * The devices have continued to record after being removed at the end of the deployment.
+  * There was some sort of problem with `goat02` during the middle of the deployment.
+  * It looks like the device for `goat04` was attached upside-down at the beginning of the deployment, and may also have been removed early.
+  
+For this exercise we will remove `goat02`, remove the early and late data for `goat04`, and trim the rest of the data to the period 2 to 12 May. We will use a slightly different method to specify days here compared to the cow example, which you may prefer. Note that `day(Time)` will give the day of the month (rather than the weekday).
+
+```{r}
+goats_clean <- goats_raw |>
+  filter_out(Animal == "goat02") |>
+  filter_out(Animal == "goat04", day(Time) <= 3) |>
+  filter_out(Animal == "goat04", day(Time) >= 12) |>
+  filter(day(Time) >= 2) |>
+  filter(day(Time) <= 12)
+```
+
+This should now match the clean version of the data supplied with the package:
+
+```{r}
+all.equal(goats, goats_clean)
+```
+
+## x-axis Histograms
+
+Because the devices are mounted vertically on legs of the goats, we will look at the x-axis for standing versus lying (rather than the Y for the cows). We tested the -0.45g threshold (dashed line) from @zobel2015, but based on these histograms that threshold looks to be too high for these goats in these conditions. The threshold should be set to be in the "valley" between the two histogram peaks, and for these goats a -0.60g threshold (dotted line) is more appropriate.
+
+```{r}
+ggplot(goats, aes(X)) +
+  geom_histogram(binwidth=0.2, colour="black", fill="white") +
+  geom_vline(xintercept=-0.45, linetype="dashed") +
+  geom_vline(xintercept=-0.60, linetype="dotted") +
+  facet_wrap(~Animal, nrow=3, scales="free_y")
+```
+
+## Classifier
+
+We use the `classify_sl` function again to assign Standing and Lying. We need to specify the axis to use and the value of the threshold (x-axis and a threshold of -0.60 as discussed above). Rather than relying on defaults, we will use the optional arguments here. We will choose a different column name for the classified behaviour (`"SL"`) by setting the `name` argument. We have kept the default behaviour names `"Standing"` and `"Lying"`, but we have specified them explicitly here to show how they can be customised. Rather than applying the smoothing after classification, we pass a `min_run` argument meaning that our `"SL"` column will already be smoothed (this is easier, but means we don't have the unsmoothed column available for comparison).
+
+```{r}
+#| print: !expr function(x, ...) xfun::record_print(head(x, 6), ...)
+goats_bvr <- goats |>
+  group_by(Animal) |>
+  classify_sl(axis="X", threshold=-0.60, name="SL", below="Standing", above="Lying", min_run=2)
+
+goats_bvr
+```
+
+```{r}
+table(goats_bvr$SL)
+```
+
+## z-axis Histograms
+
+We can also distinguish left and right lying using the z-axis acceleration. This is not as reliable as lying versus standing, and choosing a threshold can be more difficult. The z-axis is vulnerable to rotation around the leg so we advise using this with caution.
+
+To determine an appropriate threshold, we first remove observations classified as Standing. The remaining observations are used for z-axis histograms. We expect to see a bimodal distribution, usually with a bias towards the animal's preferred side.
+
+The threshold should roughly separate the two modes, although there us usually substantial overlap. In this case we will use a threshold of -0.65, indicated with dashed lines. 
+
+```{r}
+ggplot(filter(goats_bvr, SL=="Lying"), aes(Z)) +
+  geom_histogram(binwidth=0.2, colour="black", fill="white") +
+  geom_vline(xintercept=-0.60, linetype="dashed") +
+  facet_wrap(~Animal, nrow=3, scales="free_y")
+```
+
+## Standing, Lying Left, Lying Right
+
+We can perform classification against both axes simultaneously using the `classify_slr` function. We provide the required arguments (first and second axes and thresholds), as well as an optional name (`"SLR"`) to distinguish this classification result from our previous `"SL"`. We also smooth these results with `min_run`.
+
+```{r}
+#| print: !expr function(x, ...) xfun::record_print(head(x, 6), ...)
+goats_bvr <- goats_bvr |> classify_slr("X", -0.60, "Z", -0.65, name="SLR", min_run=2)
+goats_bvr
+```
+
+```{r}
+table(goats_bvr$SLR)
+```
+
+# Summaries
+
+Now that we have classified behaviours for our cow and goat examples, we move on to summaries of those behaviours suitable for analysis. This final section of the tutorial will look at daily and hourly summaries of classified behaviour.
+
+## Daily Summaries
+
+To get daily summaries we need two functions, `group_daily` and `summarise_time`. Calling `group_daily` adds a `Day` column to our data and groups by that column, and `summarise_time` creates the summary based on that grouping (as well as the by-Animal grouping which our data already had).
+
+Note that `time="Time"` is the default and is not strictly needed here. However, if your time column has a different name, use the `time` argument to point these functions to the appropriate column.
+
+```{r}
+#| print: !expr function(x, ...) xfun::record_print(head(x, 6), ...)
+goats_daily <- goats_bvr |> 
+  group_daily(time="Time") |>
+  summarise_time(behaviour="SL", time="Time")
+
+goats_daily
+```
+
+```{r}
+ggplot(goats_daily, aes(Day, 100*Lying/Total)) +
+  geom_point() + geom_line() +
+  ylim(0,75) + ylab("Lying Time (%)") +
+  facet_wrap(~Animal, ncol=3)
+```
+
+## Hourly Summaries
+
+We can also summarize the behaviours hourly by using the `group_hourly` function. By using the default column names `"Time"` and `"Behaviour"` we can call `group_hourly()` and `summarise_time` without specifying the column names explicitly. Note that `group_hourly` creates both a `"Day"` and an `"Hour"` column. 
+
+Make a note here that this is day+hour. If you want time of day, use eg group_by(hour(Time))
+
+```{r}
+#| print: !expr function(x, ...) xfun::record_print(head(x, 6), ...)
+cows_hourly <- cows_bvr |>
+  group_hourly() |>
+  summarise_time()
+
+cows_hourly
+```
+
+The data is plotted for the first day only here, showing a range of diurnal patterns.
+
+```{r}
+ggplot(cows_hourly |> filter(Day=="2026-04-02"), aes(Hour, 100*Lying/Total)) +
+  geom_point() + geom_line() +
+  ylim(0,100) + ylab("Lying Time (%)") +
+  facet_wrap(~Animal, ncol=3)
+```
+
+## Bouts
+
+As well as duration measures like total time or percentage of time budget, we might be interested in summarising the frequency and duration of behavioural bouts. To do this we first need to convert our instantaneous samples into bouts using the `bouts` function.
+
+```{r}
+#| print: !expr function(x, ...) xfun::record_print(head(x, 6), ...)
+goats_bouts <- goats_bvr |>
+  group_daily() |>
+  bouts(behaviour="SL")
+
+goats_bouts
+```
+
+We can use the individual bouts data, or use `summarise_bouts` to get a summary of the number and total duration of bouts.
+
+```{r}
+#| print: !expr function(x, ...) xfun::record_print(head(x, 6), ...)
+goats_bouts |> summarise_bouts(behaviour="SL")
+```
+
+# References
+
+::: {#refs}
+:::
+
+::: {style="margin-bottom:100px;"}
+:::
+

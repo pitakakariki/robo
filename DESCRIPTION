@@ -1,0 +1,23 @@
+Package: robo
+Type: Package
+Title: Classify and Process HOBO Accelerometer Data
+Description: Functions to apply simple threshold classifiers to data from HOBO accelerometer devices used to monitor animal behaviour, and to calculate and summarise behavioural bouts.
+Version: 0.4-1
+Authors@R: c(
+    person("Peter", "Green", role=c("aut", "cre"), email="simr.peter@gmail.com",
+        comment=c(ORCID="0000-0002-0238-9852")),
+    person("Gosia", "Zobel", role=c("aut", "ctb"), comment=c(ORCID="0000-0002-9883-9503")),
+    person("Bryan", "Thompson", role="ctb", comment=c(ORCID="0000-0001-5335-7415")),
+    person("Kevan", "Côté", role="ctb", comment=c(ORCID="0000-0001-6265-1050")))
+URL: https://github.com/pitakakariki/robo
+BugReports: https://github.com/pitakakariki/robo/issues
+License: GPL (>=2)
+Depends: R (>= 4.1.0)
+Imports: dplyr, lubridate, methods, readr, rlang, tidyr, utils
+Suggests: ggplot2, litedown, rbibutils, tinytest
+LazyData: true
+LazyDataCompression: xz
+Encoding: UTF-8
+VignetteBuilder: litedown
+Roxygen: list(markdown=TRUE)
+Config/roxygen2/version: 8.1.0
