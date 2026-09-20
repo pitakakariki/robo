@@ -4,5 +4,11 @@ expect_silent(
 )
 
 expect_silent(
-  smooth_behaviour(cows_sl)  
+  smooth_behaviour(cows_sl)
 )
+
+expect_silent(
+  smooth_behaviour(cows_sl, min_run=1)
+)
+
+## tests for smooth_bouts are in test_bouts.R

@@ -24,6 +24,18 @@ expect_silent({
 expect_equal(sum(test2), sum(diag(test2)))
 expect_equal(sum(diag(test2)), nrow(goats))
 
+expect_silent(
+  goats_sl2 <- goats |> dplyr::group_by(Animal) |> classify_sl("X", -0.60, min_run=2)
+)
+
+expect_error(
+ cows_sl_bad <- cows |> dplyr::group_by(Animal) |> classify_sl("X", -0.60)
+)
+
+expect_error(
+ cows_sl_bad2 <- cows |> dplyr::group_by(Animal) |> classify_sl("Y", -0.65, comparison="a")
+)
+
 ##
 ## classify_slr
 ##
@@ -31,3 +43,12 @@ expect_equal(sum(diag(test2)), nrow(goats))
 expect_silent(
   goats_slr <- goats |> dplyr::group_by(Animal) |> classify_slr("X", -0.60, "Z", -0.65)
 )
+
+expect_silent(
+  goats_slr2 <- goats |> dplyr::group_by(Animal) |> classify_slr("X", -0.60, "Z", -0.65, min_run=2)
+)
+
+expect_error(
+ goats_slr_bad <- goats |> dplyr::group_by(Animal) |> classify_slr("X", -0.60, "Z", -0.65, comparison1="a")
+)
+

@@ -1,13 +1,13 @@
 
 #' Classify behaviour from an accelerometer axis
-#' 
+#'
 #' @description
-#' 
+#'
 #' Use this function to convert a single accelerometer axis into a behavioural classification,
 #' usually Standing, Lying.
 #' This classifier uses a simple decision rule: it chooses one of two behaviours based on whether
 #' the acceleration measured by the axis is below or above a user-supplied threshold.
-#' 
+#'
 #' @param data A data frame containing accelerometer data.
 #' @param axis The name of a column in `data` to be used for this classification.
 #' @param threshold The accelerometer threshold to use for classification.
@@ -25,28 +25,28 @@
 #'
 #' @export
 classify_sl <- function(data, axis, threshold, name="Behaviour", below="Standing", above="Lying", min_run=0, comparison="<") {
-  
+
   check_axis(data, axis)
   compare <- check_comparison(comparison)
 
-  acceleration <- data[[axis]]    
+  acceleration <- data[[axis]]
   behaviour <- ifelse(compare(acceleration, threshold), below, above) |> factor(c(below, above))
-  
+
   data[[name]] <- behaviour
   if(min_run > 1) data <- smooth_behaviour(data, name, name, min_run)
-    
+
   return(data)
 }
 
 #' Classify behaviour from two accelerometer axes
-#' 
+#'
 #' @description
-#' 
+#'
 #' Use this function to convert two accelerometer axes into a behavioural classification,
 #' usually Standing, Lying Left, Lying Right.
 #' This classifier uses a two-part decision rule: it chooses the first behaviour (S vs L or R) based
 #' on the first axis and threshold, or it uses the second axis and threshold
-#' to choose between the second and third behaviour (L vs R). 
+#' to choose between the second and third behaviour (L vs R).
 #'
 #' @param data A data frame containing accelerometer data.
 #' @param axis1 The name of a column in `data` to be used for the SL classification.
@@ -72,13 +72,13 @@ classify_sl <- function(data, axis, threshold, name="Behaviour", below="Standing
 classify_slr <- function(data, axis1, threshold1, axis2, threshold2,
   name="Behaviour", below1="Standing", below2="Lying Left", above2="Lying Right",
   min_run=0, comparison1="<", comparison2="<") {
-  
+
   check_axis(data, axis1)
   check_axis(data, axis2)
-  
-  compare1 <- check_comparison(comparison1)
+
+  compare1 <- check_comparison(comparison1, gt=TRUE)
   compare2 <- check_comparison(comparison2)
-  
+
   behaviour <- ifelse(
     compare1(data[[axis1]], threshold1),
     below1,
@@ -88,19 +88,19 @@ classify_slr <- function(data, axis1, threshold1, axis2, threshold2,
       above2
     )
   ) |> factor(c(below1, below2, above2))
-  
+
   data[[name]] <- behaviour
   if(min_run > 1) data <- smooth_behaviour(data, name, name, min_run)
-  
+
   return(data)
 }
 
 # check that axis is a column in data
 check_axis <- function(data, axis) {
-  
+
   check_string_arg(axis)
   if(!(axis %in% names(data))) stop(sprintf("No %s axis in data.", axis))
-  
+
   invisible(TRUE)
 }
 
@@ -108,14 +108,14 @@ check_axis <- function(data, axis) {
 # by default < and <= are allowed
 # if gt is TRUE then > and >= are also allowed
 check_comparison <- function(comparison, gt=FALSE) {
-  
+
   check_string_arg(comparison)
-  
+
   if(gt) {
     if(!(comparison %in% c("<", "<=", ">", ">="))) stop("comparison must be one of <, <=, >, >=.")
   } else {
     if(!(comparison %in% c("<", "<="))) stop("comparison must be one of <, <=.")
   }
-  
+
   c(`<`=`<`, `<=`=`<-`, `>`=`>`, `>=`=`>=`)[[comparison]]
 }

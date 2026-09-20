@@ -4,6 +4,7 @@ expect_silent(
 )
 
 expect_silent(goats_daily <- group_daily(goats_sl))
-  
+expect_silent(goats_hourly <- group_hourly(goats_sl))
+
 expect_silent(goats_daily_summary <- summarise_time(goats_daily))
 
